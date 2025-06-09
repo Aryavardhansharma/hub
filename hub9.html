@@ -1,0 +1,1025 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Circular Network Hub</title>
+    <style>
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            margin: 0;
+            background-color: #1a1a2e; /* Darker background */
+            color: #e0e0e0;
+            display: flex;
+            min-height: 100vh;
+            overflow: hidden; /* Prevent body scroll */
+            justify-content: center;
+            align-items: center;
+        }
+
+        .container {
+            display: flex;
+            width: 100%;
+            height: 100vh; /* Take full viewport height */
+            padding: 20px;
+            box-sizing: border-box; /* Include padding in width/height */
+            gap: 20px;
+            position: relative; /* Needed for z-index of panel */
+        }
+
+        .network-container {
+            flex: 2; /* Default state: takes 2/3 of space */
+            position: relative; /* Default positioning */
+            background-color: #21213b;
+            border-radius: 10px;
+            box-shadow: 0 5px 15px rgba(0, 0, 0, 0.3);
+            overflow: hidden;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            transition: all 0.5s ease; /* For initial layout changes */
+            z-index: 50; /* Default z-index */
+            pointer-events: auto; /* Enable pointer events by default */
+        }
+
+        /* State for network-container when info-panel is fullscreen */
+        .network-container.hidden-on-fullscreen {
+            position: fixed; /* Fixed to viewport for sliding */
+            top: 0;
+            left: 0;
+            width: 100%; /* Take full width of the screen (or as much as needed) */
+            height: 100%; /* Take full height of the screen */
+            border-radius: 0;
+            transform: translateX(-100%); /* Slide off-screen to the left */
+            opacity: 0; /* Fade out */
+            visibility: hidden; /* Hide completely */
+            pointer-events: none; /* Disable interaction when hidden */
+            transition: transform 0.3s ease-out, opacity 0.3s ease, visibility 0.3s ease; /* Faster transition for slide */
+            box-shadow: none; /* No shadow when hidden */
+            z-index: 95; /* Higher than info-panel default, but lower than fullscreen info-panel */
+        }
+
+        /* State for network-container when it slides back in from left (while info-panel is fullscreen) */
+        .network-container.slide-in-from-left {
+            transform: translateX(0); /* Slide fully into view */
+            opacity: 1; /* Make opaque when slid in */
+            visibility: visible; /* Make visible */
+            box-shadow: 0 5px 15px rgba(0, 0, 0, 0.3); /* Restore shadow */
+            z-index: 95; /* Ensure it's above the info-panel when slid in */
+            pointer-events: auto; /* Re-enable pointer events */
+            width: 60%; /* Expanded width when info-panel is fullscreen */
+            backdrop-filter: blur(10px); /* Apply blur to the background */
+            background-color: rgba(33, 33, 59, 0.7); /* Slightly transparent background for better blur effect */
+        }
+
+
+        .search-bar {
+            position: absolute;
+            top: 20px;
+            left: 20px;
+            width: 250px;
+            padding: 12px 15px;
+            border: none;
+            border-radius: 25px;
+            background-color: #39395f;
+            color: #e0e0e0;
+            box-shadow: 0 2px 8px rgba(0, 0, 0, 0.2);
+            outline: none;
+            transition: all 0.3s ease;
+            z-index: 60; /* Higher than network-container, lower than info-panel's toggle button */
+        }
+
+        /* Hide search bar when info-panel is fullscreen */
+        .network-container.hidden-on-fullscreen .search-bar,
+        .network-container.slide-in-from-left .search-bar {
+            opacity: 0;
+            pointer-events: none;
+            transition: opacity 0.3s ease;
+        }
+
+
+        .node-wrapper {
+            position: absolute;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            z-index: 5; /* Ensure dots are above connections */
+            transition: all 0.7s cubic-bezier(0.68, -0.55, 0.27, 1.55); /* For wrapper movement */
+        }
+
+        .node {
+            background-color: #f1c40f; /* Yellow dot */
+            width: 15px; /* Small dot */
+            height: 15px;
+            border-radius: 50%;
+            cursor: pointer;
+            transition: all 0.3s ease; /* For dot specific transitions (like scale) */
+        }
+
+        .node:hover {
+            transform: scale(1.5); /* Dot gets bigger on hover */
+        }
+
+        .node.active {
+            background-color: #6a5acd; /* Blue dot for active/center */
+            box-shadow: 0 0 0 5px rgba(106, 90, 205, 0.5); /* Blue glow for active */
+            transform: scale(1.8); /* Center dot is largest */
+        }
+
+        .node-label {
+            position: absolute;
+            color: #e0e0e0;
+            white-space: nowrap; /* Keep label on one line */
+            font-size: 0.9em;
+            font-weight: bold;
+            pointer-events: none; /* Allows clicks to pass through to the node dot */
+            opacity: 0.9;
+            text-shadow: 0 0 3px rgba(0, 0, 0, 0.8); /* For better readability */
+            transition: opacity 0.7s ease, font-size 0.7s ease, color 0.7s ease, transform 0.7s cubic-bezier(0.68, -0.55, 0.27, 1.55); /* Added transform transition */
+        }
+
+        .info-panel {
+            flex: 1; /* Default state: takes 1/3 of space */
+            background-color: #21213b;
+            color: #e0e0e0;
+            padding: 30px;
+            border-radius: 10px;
+            box-shadow: 0 5px 15px rgba(0, 0, 0, 0.3);
+            overflow-y: auto;
+            max-height: calc(100vh - 40px);
+            position: relative; /* Default positioning */
+            transition: all 0.5s ease, opacity 0.3s ease; /* Smooth transition for fullscreen expansion and opacity */
+            z-index: 90; /* Higher than network-container default */
+        }
+
+        /* Info panel fullscreen state */
+        .info-panel.fullscreen {
+            position: fixed; /* Fixed to viewport */
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            border-radius: 0;
+            padding: 20px;
+            box-sizing: border-box;
+            max-height: 100vh;
+            overflow-y: auto;
+            z-index: 100; /* Stays on top of everything when expanded */
+            opacity: 1; /* Fully opaque when fullscreen */
+        }
+
+        /* Dim info panel when network slides in from left if info-panel is fullscreen */
+        .info-panel.fullscreen.dim-on-network-slide {
+            opacity: 0.3; /* Adjust dimming as needed */
+            pointer-events: none; /* Disable interaction with info panel when network is foreground */
+        }
+
+
+        .info-panel h2 {
+            color: #f1c40f;
+            margin-top: 0;
+            font-size: 1.8em;
+            border-bottom: 2px solid #6a5acd;
+            padding-bottom: 10px;
+            margin-bottom: 20px;
+        }
+
+        .toggle-fullscreen-button {
+            position: absolute;
+            top: 15px;
+            right: 15px;
+            background: none;
+            border: none;
+            color: #e0e0e0;
+            font-size: 1.5em;
+            cursor: pointer;
+            padding: 5px;
+            border-radius: 5px;
+            transition: background-color 0.2s ease, color 0.2s ease;
+            z-index: 101; /* Ensure button is on top */
+            outline: none;
+        }
+
+        .toggle-fullscreen-button:hover {
+            background-color: rgba(255, 255, 255, 0.1);
+            color: #f1c40f;
+        }
+
+        .info-panel p {
+            line-height: 1.8;
+            font-size: 1.1em;
+            color: #b0b0c0;
+        }
+
+        .depth-explanation-button {
+            background-color: #6a5acd;
+            color: white;
+            border: none;
+            padding: 12px 20px;
+            border-radius: 25px;
+            cursor: pointer;
+            font-size: 1em;
+            font-weight: bold;
+            margin-top: 20px;
+            transition: background-color 0.3s ease, transform 0.2s ease;
+            display: block;
+            text-align: center;
+            width: fit-content;
+            margin-left: auto;
+            margin-right: auto;
+        }
+
+        .depth-explanation-button:hover {
+            background-color: #7f6ceb;
+            transform: translateY(-2px);
+        }
+
+        .depth-explanation-content {
+            margin-top: 20px;
+            display: none;
+            transition: all 0.5s ease-out;
+            padding-top: 15px;
+            border-top: 1px dashed #39395f;
+            color: #c0c0d0;
+        }
+        
+        .depth-explanation-content h3 {
+            color: #f1c40f;
+            margin-top: 20px;
+            margin-bottom: 10px;
+            font-size: 1.3em;
+        }
+
+        .depth-explanation-content ul {
+            list-style-type: disc;
+            margin-left: 20px;
+            padding-left: 0;
+        }
+
+        .depth-explanation-content li {
+            margin-bottom: 8px;
+            line-height: 1.6;
+        }
+
+        .depth-explanation-content.show {
+            display: block;
+        }
+
+        .video-container {
+            margin-top: 20px;
+            padding-top: 15px;
+            border-top: 1px dashed #39395f;
+            background-color: #2a2a47;
+            border-radius: 8px;
+            overflow: hidden;
+            padding-bottom: 15px;
+            text-align: center;
+        }
+
+        .video-container h3 {
+            color: #f1c40f;
+            margin-top: 0;
+            margin-bottom: 10px;
+            font-size: 1.3em;
+            padding: 0 15px;
+        }
+
+        .video-responsive {
+            position: relative;
+            padding-bottom: 56.25%; /* 16:9 aspect ratio */
+            height: 0;
+            overflow: hidden;
+            max-width: 100%;
+            background-color: #000;
+            margin: 0 auto;
+        }
+
+        .video-responsive iframe {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            border: 0;
+            border-radius: 0 0 8px 8px;
+        }
+
+        .connections {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            pointer-events: none;
+            z-index: 1; /* Connections should be behind nodes */
+        }
+
+        .connection {
+            position: absolute;
+            background-color: #7f8c8d; /* Grey connections */
+            height: 1px;
+            transform-origin: left center;
+            opacity: 0.1;
+            transition: all 0.3s ease;
+        }
+
+        .connection.highlighted {
+            background-color: #f1c40f; /* Highlighted connections */
+            opacity: 1;
+            box-shadow: 0 0 5px #f1c40f;
+            height: 2px;
+        }
+    </style>
+</head>
+<body>
+    <div class="container" id="main-container">
+        <div class="network-container" id="network-container">
+            <input type="text" class="search-bar" id="search-bar" placeholder="Search a topic...">
+            <div class="connections" id="connections"></div>
+
+            <div class="node-wrapper" id="node-wrapper-artificialIntelligence">
+                <div class="node" id="node-artificialIntelligence" data-basic-info="Artificial Intelligence (AI) simulates human intelligence. It involves machines learning, reasoning, and self-correcting. AI is widely used across industries." data-depth-info="<h3>1. Definition and Context</h3><p><strong>What it is:</strong> Artificial Intelligence (AI) is the simulation of human intelligence processes by machines, especially computer systems. These processes include learning (the acquisition of information and rules for using the information), reasoning (using rules to reach approximate or definite conclusions), and self-correction. AI aims to enable machines to perform tasks that typically require human cognition, such as problem-solving, decision-making, perception, and language understanding.</p><p><strong>Where and why it is used:</strong> AI is increasingly integrated into various aspects of daily life and industry. It's used to automate tasks, improve efficiency, derive insights from vast datasets, and create more intuitive user experiences. Industries like healthcare, finance, automotive, retail, and entertainment heavily leverage AI for diagnostics, fraud detection, autonomous vehicles, personalized recommendations, and content generation.</p><p><strong>Historical or theoretical background:</strong> The concept of AI dates back to ancient Greek myths of mechanical men, but modern AI began in the 1950s with pioneers like Alan Turing (Turing Test) and John McCarthy (coined 'Artificial Intelligence'). Early AI focused on symbolic reasoning (expert systems). The field saw 'AI winters' due to over-promising, but advancements in machine learning, increased computational power (Moore's Law), and vast data availability led to its current resurgence.</p><h3>2. Components and Structure</h3><p>AI isn't a single technology but an umbrella term for various methodologies and components. Key components often include:</p><ul><li><strong>Machine Learning (ML):</strong> Algorithms that allow systems to learn from data without explicit programming (e.g., neural networks, decision trees, support vector machines).</li><li><strong>Deep Learning (DL):</strong> A subset of ML using multi-layered neural networks, excelling in pattern recognition from large datasets (e.g., image and speech recognition).</li><li><strong>Natural Language Processing (NLP):</strong> Enables computers to understand, interpret, and generate human language (e.g., sentiment analysis, chatbots).</li><li><strong>Computer Vision (CV):</strong> Allows machines to 'see' and interpret visual information from the real world (e.g., facial recognition, object detection).</li><li><strong>Robotics:</strong> Involves designing and building robots that can perform tasks, often incorporating AI for decision-making and autonomy.</li><li><strong>Knowledge Representation and Reasoning:</strong> Systems designed to store and manipulate knowledge and apply logical rules to infer new facts.</li></ul><p>These components interact, often forming complex pipelines. For instance, a self-driving car uses computer vision to perceive its environment, ML to predict pedestrian behavior, and planning algorithms to decide its next move, all orchestrated by an AI system.</p><h3>3. Examples</h3><ul><li><strong>Virtual Assistants:</strong> Siri, Google Assistant, Alexa – using NLP for voice commands and ML for personalized responses.</li><li><strong>Recommendation Systems:</strong> Netflix, Amazon – using ML to suggest movies or products based on user history and preferences.</li><li><strong>Medical Diagnosis:</strong> AI algorithms analyzing medical images (X-rays, MRIs) to detect diseases like cancer or identify drug candidates faster than humans.</li><li><strong>Fraud Detection:</strong> Financial institutions use AI to identify unusual transaction patterns indicating fraudulent activity.</li><li><strong>Autonomous Vehicles:</strong> Self-driving cars rely on a complex AI system integrating sensors, computer vision, and predictive models.</li></ul><h3>4. Comparisons and Contrasts</h3><ul><li><strong>AI vs. Machine Learning:</strong> ML is a *subset* of AI. All ML is AI, but not all AI is ML (e.g., older rule-based expert systems are AI but not ML). AI is the broader goal of simulating intelligence; ML is a technique to achieve that goal through learning from data.</li><li><strong>AI vs. Automation:</strong> Automation performs tasks automatically based on pre-defined rules. AI goes further by enabling systems to learn, adapt, and make decisions in novel situations, often improving over time.</li></ul><h3>5. Applications</h3><ul><li><strong>Healthcare:</strong> Drug discovery, personalized medicine, medical imaging analysis, predictive analytics for outbreaks.</li><li><strong>Finance:</strong> Algorithmic trading, fraud detection, credit scoring, personalized financial advice.</li><li><strong>Retail & E-commerce:</strong> Customer service chatbots, personalized shopping experiences, inventory management, demand forecasting.</li><li><strong>Manufacturing:</strong> Predictive maintenance, quality control, robot automation, supply chain optimization.</li><li><strong>Transportation:</strong> Autonomous vehicles, traffic management, logistics optimization.</li><li><strong>Education:</strong> Personalized learning platforms, intelligent tutoring systems.</li></ul><h3>6. Common Misunderstandings</h3><ul><li><strong>AI is always conscious/sentient:</strong> This is a common sci-fi trope. Current AI systems are highly specialized to perform specific tasks and lack consciousness, emotions, or general intelligence.</li><li><strong>AI will take all jobs:</strong> While AI will automate many tasks, it's more likely to transform jobs, requiring new skills and creating new roles, rather than wholesale replacement.</li><li><strong>AI is infallible:</strong> AI systems are trained on data and can inherit biases present in that data, leading to unfair or incorrect decisions. They can also fail in novel situations not covered by their training.</li></ul><h3>7. Visual Aids (Descriptions for you)</h3><p>For a visual aid, one might imagine:</p><ul><li>A Venn diagram showing 'AI' as the largest circle, 'Machine Learning' as a smaller circle inside it, and 'Deep Learning' as the smallest circle inside ML.</li><li>A flowchart depicting the stages of an AI model's lifecycle: Data Collection -> Data Preprocessing -> Model Training -> Model Evaluation -> Deployment -> Monitoring & Retraining.</li></ul><h3>8. Challenges or Limitations</h3><ul><li><strong>Bias in data:</strong> If training data is biased, the AI model will learn and perpetuate those biases.</li><li><strong>Interpretability (Black Box Problem):</strong> Especially with deep learning, it can be difficult to understand *why* an AI made a certain decision, which is critical in sensitive applications like healthcare or law.</li><li><strong>Computational Cost:</strong> Training large AI models requires significant computational resources and energy.</li><li><strong>Ethical Concerns:</strong> Issues around privacy, accountability, job displacement, and the potential misuse of AI.</li><li><strong>Generalization:</strong> Current AI excels at specific tasks but struggles with generalizing knowledge across different domains like humans do.</li><li><strong>Data Dependency:</strong> AI models are only as good as the data they are trained on; poor quality or insufficient data leads to poor performance.</li></ul>" data-youtube-id="c0m6yaGlZh4"></div>
+                <div class="node-label">Artificial Intelligence</div>
+            </div>
+            <div class="node-wrapper" id="node-wrapper-machineLearning">
+                <div class="node" id="node-machineLearning" data-basic-info="Machine Learning (ML) is an AI subset enabling systems to learn from data without explicit programming. It uses training data to make predictions or decisions." data-depth-info="Machine Learning (ML) is a subset of artificial intelligence that provides computer systems the ability to automatically learn and improve from experience without being explicitly programmed. ML algorithms build a mathematical model based on sample data, known as 'training data', in order to make predictions or decisions without being explicitly programmed to perform the task. Key types include supervised, unsupervised, and reinforcement learning." data-youtube-id="PeMlggyqz0Y"></div>
+                <div class="node-label">Machine Learning</div>
+            </div>
+            <div class="node-wrapper" id="node-wrapper-dataMining">
+                <div class="node" id="node-dataMining" data-basic-info="Data Mining extracts patterns and insights from large datasets. It uses AI, ML, and statistics to discover useful information for predictions and understanding behavior." data-depth-info="Data Mining is the process of discovering patterns and insights from large datasets. It involves using methods from statistics, artificial intelligence, and machine learning to extract and identify useful information and subsequently to understand and predict behavior. This process is crucial in fields like business intelligence, scientific discovery, and fraud detection." data-youtube-id="7rs0i-9nOjo"></div>
+                <div class="node-label">Data Mining</div>
+            </div>
+            <div class="node-wrapper" id="node-wrapper-cybersecurity">
+                <div class="node" id="node-cybersecurity" data-basic-info="Cybersecurity protects systems, networks, and data from digital attacks aimed at access, alteration, or destruction. It's challenging due to device proliferation and evolving threats." data-depth-info="Cybersecurity is the practice of protecting systems, networks, and digital information from digital attacks. These cyberattacks are usually aimed at accessing, changing, or destroying sensitive information; extorting money from users; or disrupting normal business processes. Implementing effective cybersecurity measures is particularly challenging today because there are more devices than people, and attackers are becoming more innovative, utilizing techniques like phishing, malware, and ransomware." data-youtube-id="inWWhr5tnEA"></div>
+                <div class="node-label">Cybersecurity</div>
+            </div>
+            <div class="node-wrapper" id="node-wrapper-blockchain">
+                <div class="node" id="node-blockchain" data-basic-info="Blockchain is a distributed, decentralized ledger recording transactions. It ensures data integrity as records are immutable without altering all subsequent blocks." data-depth-info="Blockchain is a distributed, decentralized, public ledger that is used to record transactions across many computers so that any involved record cannot be altered retroactively, without the alteration of all subsequent blocks. This allows participants to verify and audit transactions independently and relatively inexpensive. Its applications extend beyond cryptocurrencies to supply chain management, voting systems, and digital identity." data-youtube-id="yubzJw0uiE4"></div>
+                <div class="node-label">Blockchain</div>
+            </div>
+            <div class="node-wrapper" id="node-wrapper-internetOfThings">
+                <div class="node" id="node-internetOfThings" data-basic-info="The Internet of Things (IoT) connects physical objects embedded with sensors and software, enabling data exchange over the internet, from smart home devices to industrial tools." data-depth-info="The Internet of Things (IoT) describes the network of physical objects—'things'—that are embedded with sensors, software, and other technologies for the purpose of connecting and exchanging data with other devices and systems over the internet. These devices range from ordinary household objects to sophisticated industrial tools, enabling smart environments, enhanced automation, and data-driven decision making." data-youtube-id="6mBO2vqLv38"></div>
+                <div class="node-label">Internet of Things</div>
+            </div>
+            <div class="node-wrapper" id="node-wrapper-dataScience">
+                <div class="node" id="node-dataScience" data-basic-info="Data Science is an interdisciplinary field that extracts knowledge and insights from data using scientific methods, algorithms, and systems, applying them to various domains." data-depth-info="Data Science is an interdisciplinary field that uses scientific methods, processes, algorithms and systems to extract knowledge and insights from noisy, structured and unstructured data, and apply knowledge and actionable insights from data across a broad range of application domains. It combines elements of statistics, computer science, and domain expertise to solve complex problems and make predictions." data-youtube-id="RBSUwFGa6Fk"></div>
+                <div class="node-label">Data Science</div>
+            </div>
+            <div class="node-wrapper" id="node-wrapper-robotics">
+                <div class="node" id="node-robotics" data-basic-info="Robotics is an engineering and science branch focused on conceiving, designing, manufacturing, and operating robots, overlapping with electronics, AI, and mechatronics." data-depth-info="Robotics is an interdisciplinary branch of engineering and science that includes the conception, design, manufacture, and operation of robots. This field overlaps with electronics, computer science, artificial intelligence, mechatronics, nanotechnology and bioengineering. Robots are designed to assist humans in various tasks, from manufacturing and exploration to healthcare and entertainment." data-youtube-id="htjRUL3neMg"></div>
+                <div class="node-label">Robotics</div>
+            </div>
+            <div class="node-wrapper" id="node-wrapper-fourthIndustrialRevolution">
+                <div class="node" id="node-fourthIndustrialRevolution" data-basic-info="The Fourth Industrial Revolution (4IR) is characterized by breakthroughs in robotics, AI, IoT, quantum computing, and biotechnology, fusing physical, digital, and biological worlds." data-depth-info="The Fourth Industrial Revolution (4IR) is marked by emerging technology breakthroughs in a number of fields, including robotics, artificial intelligence, nanotechnology, quantum computing, biotechnology, the Internet of Things, 3D printing and autonomous vehicles. It represents a fundamental shift in how we live, work, and relate to one another, characterized by a fusion of technologies blurring the lines between the physical, digital, and biological spheres." data-youtube-id="v9rZOa3CUC8"></div>
+                <div class="node-label">4th Industrial Revolution</div>
+            </div>
+            <div class="node-wrapper" id="node-wrapper-precisionMedicine">
+                <div class="node" id="node-precisionMedicine" data-basic-info="Precision medicine tailors treatment and prevention strategies to individuals or specific patient groups, moving beyond a one-size-fits-all approach." data-depth-info="Precision medicine is an approach to patient care that allows doctors and researchers to predict more accurately which treatment and prevention strategies for a particular disease will work in which groups of people. It is in contrast to a 'one-size-fits-all' approach, in which treatment and prevention strategies are developed for the average person. This approach leverages individual variability in genes, environment, and lifestyle for more effective healthcare." data-youtube-id="HQKFgfMO5Sw"></div>
+                <div class="node-label">Precision Medicine</div>
+            </div>
+            <div class="node-wrapper" id="node-wrapper-sustainability">
+                <div class="node" id="node-sustainability" data-basic-info="Sustainability maintains conditions for humans and nature to coexist productively, ensuring survival and well-being for current and future generations." data-depth-info="Sustainability is based on a simple principle: Everything that we need for our survival and well-being depends, either directly or indirectly, on our natural environment. Sustainability creates and maintains the conditions under which humans and nature can exist in productive harmony, that permit fulfilling the social, economic and other requirements of present and future generations. It encompasses environmental, social, and economic dimensions." data-youtube-id="zx04Kl8y4dE"></div>
+                <div class="node-label">Sustainability</div>
+            </div>
+            <div class="node-wrapper" id="node-wrapper-biotechnology">
+                <div class="node" id="node-biotechnology" data-basic-info="Biotechnology uses biological systems, organisms, or parts thereof to create diverse products, from traditional fermentation to modern genetic engineering." data-depth-info="Biotechnology is technology that utilizes biological systems, living organisms or parts of this to develop or create different products. Brewing and baking bread are examples of processes that fall within the concept of (conventional) biotechnology (using yeast, i.e., a living organism) to produce desired products. Modern biotechnology includes genetic engineering, drug discovery, and biofuels, with applications in medicine, agriculture, and industry." data-youtube-id="SnkHmwTKksQ"></div>
+                <div class="node-label">Biotechnology</div>
+            </div>
+            <div class="node-wrapper" id="node-wrapper-agritech">
+                <div class="node" id="node-agritech" data-basic-info="Agri-tech applies technology to agriculture, horticulture, and aquaculture to boost efficiency, productivity, and sustainability, including precision farming and automation." data-depth-info="Agri-tech, also known as agricultural technology, encompasses the use of technology in agriculture, horticulture, and aquaculture with the aim of improving efficiency, productivity, and sustainability. This includes areas such as precision farming, automation, biotechnology applied to agriculture, drone technology for crop monitoring, and data analytics to optimize farm management." data-youtube-id="gicT2XM2r8Y"></div>
+                <div class="node-label">Agritech</div>
+            </div>
+            <div class="node-wrapper" id="node-wrapper-advancedMaterials">
+                <div class="node" id="node-advancedMaterials" data-basic-info="Advanced materials are new or enhanced materials with superior performance in properties like strength, durability, or conductivity, critical for specific applications." data-depth-info="Advanced materials are new or improved materials, or modifications of existing materials, that exhibit superior performance with respect to one or more characteristics that are critical for the application being considered. These can include enhanced strength, durability, conductivity, thermal resistance, or other properties. Examples include composites, nanomaterials, and smart materials, used in aerospace, electronics, and medicine." data-youtube-id="wMLvodIVYNI"></div>
+                <div class="node-label">Advanced Materials</div>
+            </div>
+            <div class="node-wrapper" id="node-wrapper-cloudComputing">
+                <div class="node" id="node-cloudComputing" data-basic-info="Cloud computing offers on-demand computer system resources like data storage and processing power over the internet, without direct user management." data-depth-info="Cloud computing is the on-demand availability of computer system resources, especially data storage (cloud storage) and computing power, without direct active management by the user. Large clouds often have functions distributed over multiple locations, each location being a data center. It enables flexible, scalable, and cost-effective access to computing services, from personal file storage to complex enterprise applications." data-youtube-id="N0SYCyS2xZA"></div>
+                <div class="node-label">Cloud Computing</div>
+            </div>
+            <div class="node-wrapper" id="node-wrapper-quantumComputing">
+                <div class="node" id="node-quantumComputing" data-basic-info="Quantum computing develops computer technology based on the principles of quantum theory, which explains the nature and behavior of energy and matter on the quantum (atomic and subatomic) level." data-depth-info="Quantum computing is an area of computer science focused on developing computer technology based on the principles of quantum theory, which explains the nature and behavior of energy and matter on the quantum (atomic and subatomic) level. Unlike classical computers, quantum computers use qubits, which can exist in multiple states simultaneously, allowing them to process vast amounts of information much faster for specific types of problems." data-youtube-id="X8MZWCGgIb8"></div>
+                <div class="node-label">Quantum Computing</div>
+            </div>
+            <div class="node-wrapper" id="node-wrapper-cleanEnergy">
+                <div class="node" id="node-cleanEnergy" data-basic-info="Clean energy sources, primarily renewable, produce minimal to no greenhouse gases or pollutants when converted, reducing environmental impact." data-depth-info="Clean energy refers to energy sources that, when converted, release very little to no greenhouse gases or other pollutants into the atmosphere, often derived from renewable sources like solar, wind, hydro, and geothermal power. The goal of clean energy is to reduce carbon emissions and combat climate change, providing sustainable power generation for a healthier planet." data-youtube-id="AM_lAbp3NFg"></div>
+                <div class="node-label">Clean Energy</div>
+            </div>
+            <div class="node-wrapper" id="node-wrapper-climateChange">
+                <div class="node" id="node-climateChange" data-basic-info="Climate change is the long-term shift in global temperatures and weather patterns, primarily driven by human activities like fossil fuel burning." data-depth-info="Climate change refers to long-term shifts in temperatures and weather patterns. These shifts may be natural, but since the 1800s, human activities have been the main driver of climate change, primarily due to the burning of fossil fuels (like coal, oil, and gas), which produces heat-trapping gases. Its impacts include rising sea levels, extreme weather events, and disruptions to ecosystems." data-youtube-id="ko6GNA58YOA"></div>
+                <div class="node-label">Climate Change</div>
+            </div>
+            <div class="node-wrapper" id="node-wrapper-urbanPlanning">
+                <div class="node" id="node-urbanPlanning" data-basic-info="Urban Planning designs and develops land use and the built environment in urban areas, including infrastructure and services, to create functional and sustainable cities." data-depth-info="Urban Planning is a technical and political process concerned with the development and design of land use and the built environment, including air, water, and the infrastructure passing into and out of urban areas. It aims to create functional, sustainable, and aesthetically pleasing urban spaces, considering factors like population growth, transportation, environmental impact, and social equity." data-youtube-id="_5ot_1tbQX8"></div>
+                <div class="node-label">Urban Planning</div>
+            </div>
+            <div class="node-wrapper" id="node-wrapper-3DPrinting">
+                <div class="node" id="node-3DPrinting" data-basic-info="3D Printing (additive manufacturing) builds three-dimensional objects layer by layer from digital designs, revolutionizing product creation." data-depth-info="3D Printing, or additive manufacturing, is a process of making three-dimensional solid objects from a digital file. The creation of a 3D-printed object is achieved using additive processes, where successive layers of material are laid down under computer control. This technology has applications in rapid prototyping, manufacturing, healthcare (e.g., prosthetics, organs), and construction, allowing for complex geometries and on-demand production." data-youtube-id="bcTzyx35odY"></div>
+                <div class="node-label">3D Printing</div>
+            </div>
+            <div class="node-wrapper" id="node-wrapper-sustainableDevelopment">
+                <div class="node" id="node-sustainableDevelopment" data-basic-info="Sustainable development meets human development goals while preserving natural systems for future generations, balancing economic, social, and environmental needs." data-depth-info="Sustainable development is the organizing principle for meeting human development goals while simultaneously sustaining the ability of natural systems to provide the natural resources and ecosystem services upon which the economy and society depend. It aims to integrate economic growth, social equity, and environmental protection, often guided by the UN Sustainable Development Goals (SDGs)." data-youtube-id="jfsWI8XgQyo"></div>
+                <div class="node-label">Sustainable Development</div>
+            </div>
+            <div class="node-wrapper" id="node-wrapper-biodiversity">
+                <div class="node" id="node-biodiversity" data-basic-info="Biodiversity refers to the variety of life on Earth, from genes to ecosystems, crucial for ecological and evolutionary processes." data-depth-info="Biodiversity is the variety of life on Earth at all its levels, from genes to ecosystems, and can encompass evolutionary, ecological, and cultural processes that sustain life. It includes diversity within species, between species, and of ecosystems. High biodiversity is vital for ecosystem health, providing services like pollination, water purification, and climate regulation." data-youtube-id="b6Ua_zWDH6U"></div>
+                <div class="node-label">Biodiversity</div>
+            </div>
+            <div class="node-wrapper" id="node-wrapper-forests">
+                <div class="node" id="node-forests" data-basic-info="Forests are vital ecosystems regulating climate, preserving biodiversity, and providing resources and livelihoods worldwide." data-depth-info="Forests are vital ecosystems that play a critical role in regulating climate, preserving biodiversity, and providing essential resources and livelihoods for millions of people worldwide. They absorb carbon dioxide, produce oxygen, provide habitats for wildlife, and offer products like timber and medicines. Deforestation poses a significant threat to climate and biodiversity." data-youtube-id="LyzOq40rpwQ"></div>
+                <div class="node-label">Forests</div>
+            </div>
+            <div class="node-wrapper" id="node-wrapper-climateIndicators">
+                <div class="node" id="node-climateIndicators" data-basic-info="Climate indicators are variables describing Earth's climate system state, used to track changes like global temperature, sea level, and greenhouse gas concentrations." data-depth-info="Climate indicators are essential variables that describe the state of Earth's climate system. They are used to track changes in climate and include metrics suchs as global average temperature, sea level, greenhouse gas concentrations, ice sheet mass balance, ocean heat content, and extreme weather events. Monitoring these indicators helps scientists understand and predict climate change impacts." data-youtube-id="G4H1N_yXBiA"></div>
+                <div class="node-label">Climate Indicators</div>
+            </div>
+            <div class="node-wrapper" id="node-wrapper-circularEconomy">
+                <div class="node" id="node-circularEconomy" data-basic-info="A circular economy aims to keep resources in use, maximize value, and regenerate products, contrasting with the traditional linear take-make-dispose model." data-depth-info="A circular economy is a systemic approach to economic development designed to benefit businesses, society, and the environment. In contrast to the traditional linear economy (take-make-dispose), it aims to keep resources in use for as long as possible, extract the maximum value from them whilst in use, then recover and regenerate products and materials at the end of each service life. It emphasizes design out waste and pollution." data-youtube-id="zCRKvDyyHmI"></div>
+                <div class="node-label">Circular Economy</div>
+            </div>
+            <div class="node-wrapper" id="node-wrapper-airPollution">
+                <div class="node" id="node-airPollution" data-basic-info="Air pollution involves harmful substances in the atmosphere, causing diseases, allergies, and environmental damage." data-depth-info="Air pollution refers to the presence of harmful substances in the atmosphere, including gases, particulate matter, and biological molecules. It can cause diseases, allergies, or even death to humans, and it can harm other living organisms such as animals and food crops, and may damage the natural environment. Major sources include industrial emissions, vehicle exhaust, and agricultural activities." data-youtube-id="e6rglsLy1Ys"></div>
+                <div class="node-label">Air Pollution</div>
+            </div>
+            <div class="node-wrapper" id="node-wrapper-superconductivity">
+                <div class="node" id="node-superconductivity" data-basic-info="Superconductivity is a phenomenon where certain materials exhibit zero electrical resistance and expel magnetic fields below a critical temperature." data-depth-info="Superconductivity is a set of physical properties observed in certain materials where electrical resistance vanishes and magnetic flux fields are expelled from the material when it is cooled below a characteristic critical temperature. This unique state has potential applications in highly efficient power transmission, high-speed levitation (maglev trains), and advanced electronics." data-youtube-id="681nX33wfLI"></div>
+                <div class="node-label">Superconductivity</div>
+            </div>
+            <div class="node-wrapper" id="node-wrapper-space">
+                <div class="node" id="node-space" data-basic-info="Space refers to the vast expanse beyond Earth's atmosphere, also known as outer space, where celestial objects exist." data-depth-info="Space refers to the vast, three-dimensional extent in which objects and events have relative position and direction. In a cosmological sense, it refers to the region beyond Earth's atmosphere, often called outer space. It is a near-perfect vacuum, containing stars, planets, galaxies, and other celestial bodies. Exploration and utilization of space are growing fields, encompassing satellite technology, space travel, and astronomical research." data-youtube-id="oCK5oGmRtxQ"></div>
+                <div class="node-label">Space</div>
+            </div>
+        </div>
+        <div class="info-panel" id="info-panel">
+            <button class="toggle-fullscreen-button" id="toggle-fullscreen-button" title="Expand to fullscreen">
+                ⛶ </button>
+            <h2>Welcome!</h2>
+            <p>Click on any topic in the network to learn more about it and highlight its connections.</p>
+        </div>
+    </div>
+
+    <script>
+        const nodeWrappers = document.querySelectorAll('.node-wrapper');
+        const infoPanel = document.getElementById('info-panel');
+        const networkContainer = document.getElementById('network-container');
+        const mainContainer = document.getElementById('main-container');
+        const connectionsContainer = document.getElementById('connections');
+        const searchBar = document.getElementById('search-bar');
+        let toggleFullscreenButton = document.getElementById('toggle-fullscreen-button');
+
+        let activeNodeIdInPanel = null; // Stores the ID of the node currently displayed in the info panel
+        let isInfoPanelFullscreen = false; // Tracks if the info panel is fullscreen
+        let networkSlideTimeout; // For network slide-out on mouseleave
+
+        const nodeData = {};
+        nodeWrappers.forEach(wrapper => {
+            const node = wrapper.querySelector('.node');
+            const label = wrapper.querySelector('.node-label');
+            const id = node.id.substring(5);
+            nodeData[id] = {
+                wrapper: wrapper,
+                node: node,
+                label: label,
+                basicInfo: node.dataset.basicInfo,
+                depthInfo: node.dataset.depthInfo,
+                youtubeId: node.dataset.youtubeId,
+                name: label.textContent.trim()
+            };
+        });
+
+        const connectionsMap = {
+            'artificialIntelligence': ['machineLearning', 'dataMining', 'robotics', 'cloudComputing', 'fourthIndustrialRevolution', 'dataScience', 'quantumComputing', '3DPrinting'],
+            'machineLearning': ['artificialIntelligence', 'dataMining', 'dataScience', 'cloudComputing'],
+            'dataMining': ['artificialIntelligence', 'machineLearning', 'dataScience'],
+            'cybersecurity': ['blockchain', 'cloudComputing', 'internetOfThings', 'dataScience'],
+            'blockchain': ['cybersecurity', 'internetOfThings'],
+            'internetOfThings': ['blockchain', 'dataScience', 'cybersecurity', 'cloudComputing', 'fourthIndustrialRevolution', 'agritech', 'space'],
+            'dataScience': ['machineLearning', 'dataMining', 'internetOfThings', 'cloudComputing', 'artificialIntelligence', 'cybersecurity'],
+            'robotics': ['artificialIntelligence', 'fourthIndustrialRevolution', 'advancedMaterials', '3DPrinting'],
+            'fourthIndustrialRevolution': ['robotics', 'precisionMedicine', 'biotechnology', 'internetOfThings', 'quantumComputing', 'artificialIntelligence', 'advancedMaterials', 'cleanEnergy', '3DPrinting', 'sustainableDevelopment'],
+            'precisionMedicine': ['fourthIndustrialRevolution', 'biotechnology'],
+            'sustainability': ['biotechnology', 'agritech', 'advancedMaterials', 'cleanEnergy', 'climateChange', 'urbanPlanning', 'sustainableDevelopment', 'biodiversity', 'forests', 'circularEconomy', 'airPollution'],
+            'biotechnology': ['sustainability', 'agritech', 'fourthIndustrialRevolution', 'precisionMedicine', 'advancedMaterials', 'biodiversity'],
+            'agritech': ['sustainability', 'biotechnology', 'advancedMaterials', 'internetOfThings', 'sustainableDevelopment', 'forests'],
+            'advancedMaterials': ['biotechnology', 'agritech', 'robotics', 'fourthIndustrialRevolution', 'sustainability', '3DPrinting', 'superconductivity'],
+            'cloudComputing': ['artificialIntelligence', 'machineLearning', 'dataScience', 'internetOfThings', 'cybersecurity', 'quantumComputing'],
+            'quantumComputing': ['fourthIndustrialRevolution', 'artificialIntelligence', 'cloudComputing', 'superconductivity'],
+            'cleanEnergy': ['sustainability', 'climateChange', 'fourthIndustrialRevolution', 'urbanPlanning', 'sustainableDevelopment', 'circularEconomy', 'airPollution', 'climateIndicators'],
+            'climateChange': ['sustainability', 'cleanEnergy', 'urbanPlanning', 'sustainableDevelopment', 'biodiversity', 'forests', 'climateIndicators', 'airPollution'],
+            'urbanPlanning': ['sustainability', 'climateChange', 'sustainableDevelopment', 'circularEconomy', 'airPollution'],
+            '3DPrinting': ['artificialIntelligence', 'robotics', 'advancedMaterials', 'fourthIndustrialRevolution'],
+            'sustainableDevelopment': ['sustainability', 'fourthIndustrialRevolution', 'cleanEnergy', 'agritech', 'climateChange', 'urbanPlanning', 'circularEconomy', 'biodiversity', 'forests', 'climateIndicators'],
+            'biodiversity': ['sustainability', 'biotechnology', 'sustainableDevelopment', 'forests', 'climateChange'],
+            'forests': ['sustainability', 'sustainableDevelopment', 'biodiversity', 'climateChange', 'agritech'],
+            'climateIndicators': ['cleanEnergy', 'climateChange', 'sustainableDevelopment', 'airPollution'],
+            'circularEconomy': ['sustainability', 'sustainableDevelopment', 'cleanEnergy', 'urbanPlanning', 'airPollution'],
+            'airPollution': ['sustainability', 'cleanEnergy', 'climateChange', 'urbanPlanning', 'circularEconomy', 'climateIndicators'],
+            'superconductivity': ['quantumComputing', 'advancedMaterials'],
+            'space': ['internetOfThings']
+        };
+
+        // Helper to get center of the network-container
+        function getCenterOfNetworkContainer() {
+            // When network is hidden-on-fullscreen or slide-in-from-left, its width/height are the window's
+            const currentContainerWidth = networkContainer.classList.contains('hidden-on-fullscreen') || networkContainer.classList.contains('slide-in-from-left') ? window.innerWidth : networkContainer.offsetWidth;
+            const currentContainerHeight = networkContainer.classList.contains('hidden-on-fullscreen') || networkContainer.classList.contains('slide-in-from-left') ? window.innerHeight : networkContainer.offsetHeight;
+
+            return {
+                x: currentContainerWidth / 2,
+                y: currentContainerHeight / 2
+            };
+        }
+
+        // Helper to get the absolute position of a node's dot relative to the network-container
+        function getNodeDotPositionInContainer(nodeElement) {
+            const wrapper = nodeElement.closest('.node-wrapper');
+            const wrapperLeft = parseFloat(wrapper.style.left);
+            const wrapperTop = parseFloat(wrapper.style.top);
+            const dotSize = nodeElement.offsetWidth;
+
+            return {
+                x: wrapperLeft + dotSize / 2,
+                y: wrapperTop + dotSize / 2
+            };
+        }
+
+        function createConnection(startPos, endPos, isHighlighted) {
+            const distance = Math.sqrt(Math.pow(endPos.x - startPos.x, 2) + Math.pow(endPos.y - startPos.y, 2));
+            const angle = Math.atan2(endPos.y - startPos.y, endPos.x - startPos.x);
+
+            const connection = document.createElement('div');
+            connection.classList.add('connection');
+            if (isHighlighted) {
+                connection.classList.add('highlighted');
+            }
+            connection.style.width = `${distance}px`;
+            connection.style.left = `${startPos.x}px`;
+            connection.style.top = `${startPos.y}px`;
+            connection.style.transform = `rotate(${angle}rad)`;
+            connectionsContainer.appendChild(connection);
+        }
+
+        function drawWebConnections() {
+            connectionsContainer.innerHTML = ''; // Clear all existing connections
+
+            const visibleNodeIds = Array.from(nodeWrappers)
+                                           .filter(wrapper => wrapper.style.display !== 'none')
+                                           .map(wrapper => wrapper.querySelector('.node').id.substring(5));
+
+            const processedConnections = new Set();
+            
+            // Highlight connections for the active node in the panel
+            const activeNodeData = nodeData[activeNodeIdInPanel];
+            if (activeNodeData && visibleNodeIds.includes(activeNodeIdInPanel)) {
+                const connectedToActive = connectionsMap[activeNodeIdInPanel] || [];
+                const activeNodePos = getNodeDotPositionInContainer(activeNodeData.node);
+                
+                connectedToActive.forEach(targetId => {
+                    if (visibleNodeIds.includes(targetId)) {
+                        const targetNodeElement = nodeData[targetId]?.node;
+                        if (targetNodeElement) {
+                            const targetPos = getNodeDotPositionInContainer(targetNodeElement);
+                            createConnection(activeNodePos, targetPos, true);
+                            processedConnections.add([activeNodeIdInPanel, targetId].sort().join('-'));
+                        }
+                    }
+                });
+            }
+
+            // Draw all other connections (background web) among visible nodes
+            visibleNodeIds.forEach(id1 => {
+                const connectedToId1 = connectionsMap[id1] || [];
+                connectedToId1.forEach(id2 => {
+                    const connectionKey = [id1, id2].sort().join('-');
+                    if (!processedConnections.has(connectionKey) && visibleNodeIds.includes(id2)) {
+                        const node1Element = nodeData[id1]?.node;
+                        const node2Element = nodeData[id2]?.node;
+
+                        if (node1Element && node2Element) {
+                            const pos1 = getNodeDotPositionInContainer(node1Element);
+                            const pos2 = getNodeDotPositionInContainer(node2Element);
+                            createConnection(pos1, pos2, false);
+                            processedConnections.add(connectionKey);
+                        }
+                    }
+                });
+            });
+        }
+
+
+        function updateNodePositions(clickedNodeId = null) {
+            const currentReferenceWidth = isInfoPanelFullscreen ? window.innerWidth : networkContainer.offsetWidth;
+            const currentReferenceHeight = isInfoPanelFullscreen ? window.innerHeight : networkContainer.offsetHeight;
+
+            const center = {
+                x: currentReferenceWidth / 2,
+                y: currentReferenceHeight / 2
+            };
+            const dotSize = nodeData[Object.keys(nodeData)[0]]?.node.offsetWidth || 15;
+            const labelMargin = 25;
+            const circumferenceRadius = Math.min(currentReferenceWidth / 2, currentReferenceHeight / 2) * 0.7;
+
+            // Reset all nodes to default state (opacity, no active class, display flex)
+            nodeWrappers.forEach(wrapper => {
+                const node = wrapper.querySelector('.node');
+                const label = wrapper.querySelector('.node-label');
+
+                // Clear active class from all nodes first, then reapply if needed
+                node.classList.remove('active');
+                
+                wrapper.style.opacity = 0.9;
+                label.style.display = 'block';
+            });
+
+            const currentlyVisibleWrappers = Array.from(nodeWrappers).filter(wrapper => wrapper.style.display !== 'none');
+
+            // Logic for centering a clicked node or distributing all nodes
+            if (clickedNodeId && !isInfoPanelFullscreen) {
+                const clickedWrapper = nodeData[clickedNodeId].wrapper;
+                // Position active node at center
+                clickedWrapper.style.left = `${center.x - clickedWrapper.offsetWidth / 2}px`;
+                clickedWrapper.style.top = `${center.y - clickedWrapper.offsetHeight / 2}px`;
+                clickedWrapper.querySelector('.node').classList.add('active');
+                clickedWrapper.style.opacity = 1;
+                clickedWrapper.querySelector('.node-label').style.display = 'none';
+
+                const circumferenceTargets = currentlyVisibleWrappers.filter(wrapper => wrapper.id !== `node-wrapper-${clickedNodeId}`);
+                const angleIncrement = (2 * Math.PI) / circumferenceTargets.length;
+                circumferenceTargets.sort((a, b) => a.id.localeCompare(b.id)); // Consistent order
+
+                circumferenceTargets.forEach((wrapper, index) => {
+                    const angle = index * angleIncrement;
+                    const x = center.x + circumferenceRadius * Math.cos(angle);
+                    const y = center.y + circumferenceRadius * Math.sin(angle);
+
+                    wrapper.style.left = `${x - wrapper.offsetWidth / 2}px`;
+                    wrapper.style.top = `${y - wrapper.offsetHeight / 2}px`;
+                    wrapper.style.opacity = 0.6;
+
+                    const label = wrapper.querySelector('.node-label');
+                    label.style.display = 'block';
+                    const labelAngle = angle;
+                    const labelOffsetX = (dotSize / 2 + labelMargin) * Math.cos(labelAngle);
+                    const labelOffsetY = (dotSize / 2 + labelMargin) * Math.sin(labelAngle);
+                    label.style.left = `calc(50% + ${labelOffsetX}px)`;
+                    label.style.top = `calc(50% + ${labelOffsetY}px)`;
+                    if (angle > Math.PI / 2 && angle < 3 * Math.PI / 2) {
+                        label.style.transform = 'translate(-100%, -50%)';
+                        label.style.textAlign = 'right';
+                    } else {
+                        label.style.transform = 'translate(0%, -50%)';
+                        label.style.textAlign = 'left';
+                    }
+                });
+
+            } else { // No node clicked (welcome state) or info panel is fullscreen (all on circumference)
+                const numVisibleWrappers = currentlyVisibleWrappers.length;
+                const angleIncrement = (2 * Math.PI) / numVisibleWrappers;
+                
+                currentlyVisibleWrappers.sort((a, b) => a.id.localeCompare(b.id));
+
+                currentlyVisibleWrappers.forEach((wrapper, index) => {
+                    const angle = index * angleIncrement;
+                    const x = center.x + circumferenceRadius * Math.cos(angle);
+                    const y = center.y + circumferenceRadius * Math.sin(angle);
+
+                    wrapper.style.left = `${x - wrapper.offsetWidth / 2}px`;
+                    wrapper.style.top = `${y - wrapper.offsetHeight / 2}px`;
+                    wrapper.style.opacity = 0.9;
+
+                    // Ensure the currently active node still has the 'active' class visually
+                    if (wrapper.id === `node-wrapper-${activeNodeIdInPanel}`) {
+                        wrapper.querySelector('.node').classList.add('active');
+                        wrapper.querySelector('.node-label').style.display = 'none'; // Hide label of active node
+                        wrapper.style.opacity = 1;
+                    }
+
+
+                    const label = wrapper.querySelector('.node-label');
+                    label.style.display = 'block'; // Ensure label is visible for circumference nodes
+                    const labelAngle = angle;
+                    const labelOffsetX = (dotSize / 2 + labelMargin) * Math.cos(labelAngle);
+                    const labelOffsetY = (dotSize / 2 + labelMargin) * Math.sin(labelAngle);
+                    label.style.left = `calc(50% + ${labelOffsetX}px)`;
+                    label.style.top = `calc(50% + ${labelOffsetY}px)`;
+                    if (angle > Math.PI / 2 && angle < 3 * Math.PI / 2) {
+                        label.style.transform = 'translate(-100%, -50%)';
+                        label.style.textAlign = 'right';
+                    } else {
+                        label.style.transform = 'translate(0%, -50%)';
+                        label.style.textAlign = 'left';
+                    }
+                });
+            }
+            drawWebConnections(); // Always redraw connections after positions update
+        }
+
+
+        // Function to update the info panel with a topic's details
+        function populateInfoPanel(nodeId, basicInfo, depthInfo, youtubeId) {
+            const readableNodeId = nodeId.replace(/([A-Z])/g, ' $1').trim().replace('4 Th', '4th');
+            
+            let htmlContent = `
+                <h2>${readableNodeId}</h2>
+                <p>${basicInfo}</p>
+            `;
+            
+            if (depthInfo && depthInfo.trim() !== '') {
+                htmlContent += `<button class="depth-explanation-button">Depth Explanation</button>`;
+                htmlContent += `<div class="depth-explanation-content">${depthInfo}</div>`;
+            }
+
+            if (youtubeId && youtubeId.trim() !== '') {
+                htmlContent += `
+                    <div class="video-container">
+                        <h3>Video Explanation</h3>
+                        <div class="video-responsive">
+                            <iframe
+                                src="https://www.youtube.com/embed/${youtubeId}"
+                                frameborder="0"
+                                allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
+                                allowfullscreen>
+                            </iframe>
+                        </div>
+                    </div>
+                `;
+            }
+
+            infoPanel.innerHTML = `
+                <button class="toggle-fullscreen-button" id="toggle-fullscreen-button" title="Expand to fullscreen">
+                    ⛶ </button>
+                ${htmlContent}
+            `;
+
+            // Re-attach event listeners after innerHTML update
+            const depthButton = infoPanel.querySelector('.depth-explanation-button');
+            if (depthButton) {
+                depthButton.addEventListener('click', function() {
+                    const content = infoPanel.querySelector('.depth-explanation-content');
+                    if (content) {
+                        content.classList.toggle('show');
+                        if (content.classList.contains('show')) {
+                            depthButton.textContent = 'Hide Explanation';
+                        } else {
+                            depthButton.textContent = 'Depth Explanation';
+                        }
+                    }
+                });
+            }
+
+            toggleFullscreenButton = infoPanel.querySelector('#toggle-fullscreen-button'); // Re-select the button
+            if (toggleFullscreenButton) {
+                toggleFullscreenButton.removeEventListener('click', toggleInfoPanelFullscreen); // Remove old listener
+                toggleFullscreenButton.addEventListener('click', toggleInfoPanelFullscreen); // Add new listener
+            }
+        }
+
+        // Function to toggle info panel fullscreen state AND manage network container visibility
+        function toggleInfoPanelFullscreen() {
+            infoPanel.classList.toggle('fullscreen');
+            isInfoPanelFullscreen = infoPanel.classList.contains('fullscreen');
+
+            if (isInfoPanelFullscreen) {
+                toggleFullscreenButton.innerHTML = '🗗'; // Minimize icon
+                toggleFullscreenButton.title = 'Minimize panel';
+                // Hide the network container by adding the class
+                networkContainer.classList.add('hidden-on-fullscreen');
+            } else {
+                toggleFullscreenButton.innerHTML = '⛶'; // Expand icon
+                toggleFullscreenButton.title = 'Expand to fullscreen';
+                // Show the network container by removing the class
+                networkContainer.classList.remove('hidden-on-fullscreen');
+                networkContainer.classList.remove('slide-in-from-left'); // Ensure it's not slid in
+                networkContainer.classList.remove('blurred-background'); // Remove blur when not fullscreen
+                updateNodePositions(activeNodeIdInPanel); // Recalculate node positions with current active node
+                // Re-populate info panel with the previously active node's data (or welcome if none)
+                if (activeNodeIdInPanel) {
+                    const data = nodeData[activeNodeIdInPanel];
+                    populateInfoPanel(activeNodeIdInPanel, data.basicInfo, data.depthInfo, data.youtubeId);
+                } else {
+                    resetInfoPanelToWelcome();
+                }
+            }
+        }
+
+        // Function to reset info panel to welcome state
+        function resetInfoPanelToWelcome() {
+            infoPanel.innerHTML = `
+                <button class="toggle-fullscreen-button" id="toggle-fullscreen-button" title="Expand to fullscreen">
+                    ⛶
+                </button>
+                <h2>Welcome!</h2><p>Click on any topic in the network to learn more about it and highlight its connections.</p>
+            `;
+            toggleFullscreenButton = infoPanel.querySelector('#toggle-fullscreen-button');
+            if (toggleFullscreenButton) {
+                toggleFullscreenButton.removeEventListener('click', toggleInfoPanelFullscreen);
+                toggleFullscreenButton.addEventListener('click', toggleInfoPanelFullscreen);
+            }
+            // Clear active node in panel when welcome is displayed
+            activeNodeIdInPanel = null; 
+            // Remove active class from any node that might still have it
+            nodeWrappers.forEach(wrapper => wrapper.querySelector('.node').classList.remove('active'));
+            updateNodePositions(); // Reset all node positions to circumference
+        }
+
+        // --- Event Listeners ---
+
+        nodeWrappers.forEach(wrapper => {
+            const nodeDot = wrapper.querySelector('.node');
+            nodeDot.addEventListener('click', function() {
+                if (wrapper.style.display === 'none') {
+                    return;
+                }
+
+                const nodeId = this.id.substring(5);
+
+                // If clicking the currently active node, clear it
+                if (activeNodeIdInPanel === nodeId && !isInfoPanelFullscreen) {
+                    activeNodeIdInPanel = null;
+                    this.classList.remove('active'); // Remove active class from dot
+                    updateNodePositions(); // Recalculate positions for all nodes
+                    resetInfoPanelToWelcome(); // Revert info panel to welcome
+                    return;
+                }
+                
+                // If info panel is fullscreen and user clicks a node in the slid-in network,
+                // update the info panel with the new node's data.
+                if (isInfoPanelFullscreen) {
+                    // Update the active node ID first for positioning and info panel content
+                    if (activeNodeIdInPanel && nodeData[activeNodeIdInPanel]) {
+                        nodeData[activeNodeIdInPanel].node.classList.remove('active');
+                    }
+                    this.classList.add('active');
+                    activeNodeIdInPanel = nodeId;
+
+                    const data = nodeData[activeNodeIdInPanel];
+                    populateInfoPanel(activeNodeIdInPanel, data.basicInfo, data.depthInfo, data.youtubeId);
+                    updateNodePositions(activeNodeIdInPanel); // Still update positions to make clicked node active in the network view
+                    return; // Stop here, done.
+                }
+
+
+                // If a new node is clicked (when info panel is not fullscreen),
+                // update active node visuals and populate info panel content.
+                if (activeNodeIdInPanel && nodeData[activeNodeIdInPanel]) {
+                    nodeData[activeNodeIdInPanel].node.classList.remove('active');
+                }
+                
+                this.classList.add('active'); 
+                activeNodeIdInPanel = nodeId; 
+
+                updateNodePositions(nodeId); 
+                
+                const basicInfo = this.dataset.basicInfo;
+                const depthInfo = this.dataset.depthInfo;
+                const youtubeId = this.dataset.youtubeId;
+                populateInfoPanel(nodeId, basicInfo, depthInfo, youtubeId); 
+            });
+        });
+
+        searchBar.addEventListener('input', function() {
+            const searchTerm = this.value.toLowerCase();
+            let firstFoundWrapper = null;
+            let currentActiveNodeStillVisible = false;
+
+            nodeWrappers.forEach(wrapper => {
+                wrapper.style.display = 'flex'; // Ensure all visible before filtering
+            });
+
+            nodeWrappers.forEach(wrapper => {
+                const nodeId = wrapper.querySelector('.node').id.substring(5);
+                const labelText = nodeData[nodeId].name.toLowerCase();
+                const basicInfoText = nodeData[nodeId].basicInfo ? nodeData[nodeId].basicInfo.toLowerCase() : '';
+                const depthInfoText = nodeData[nodeId].depthInfo ? nodeData[nodeId].depthInfo.toLowerCase() : '';
+
+                if (labelText.includes(searchTerm) || basicInfoText.includes(searchTerm) || depthInfoText.includes(searchTerm)) {
+                    wrapper.style.display = 'flex';
+                    if (!firstFoundWrapper) {
+                        firstFoundWrapper = wrapper;
+                    }
+                    if (nodeData[activeNodeIdInPanel] && wrapper === nodeData[activeNodeIdInPanel].wrapper) {
+                        currentActiveNodeStillVisible = true;
+                    }
+                } else {
+                    wrapper.style.display = 'none';
+                }
+            });
+
+            if (searchTerm === '') {
+                activeNodeIdInPanel = null;
+                updateNodePositions();
+                resetInfoPanelToWelcome();
+                // Ensure info panel is not fullscreen and network is visible
+                infoPanel.classList.remove('fullscreen');
+                networkContainer.classList.remove('hidden-on-fullscreen');
+                networkContainer.classList.remove('slide-in-from-left');
+                networkContainer.classList.remove('blurred-background'); // Remove blur on search clear
+                isInfoPanelFullscreen = false;
+            } else {
+                if (currentActiveNodeStillVisible) {
+                    updateNodePositions(activeNodeIdInPanel);
+                    const data = nodeData[activeNodeIdInPanel];
+                    populateInfoPanel(activeNodeIdInPanel, data.basicInfo, data.depthInfo, data.youtubeId);
+                } else if (firstFoundWrapper) {
+                    if (activeNodeIdInPanel && nodeData[activeNodeIdInPanel]) {
+                        nodeData[activeNodeIdInPanel].node.classList.remove('active');
+                    }
+                    firstFoundWrapper.querySelector('.node').classList.add('active');
+                    activeNodeIdInPanel = firstFoundWrapper.querySelector('.node').id.substring(5);
+
+                    updateNodePositions(activeNodeIdInPanel);
+                    const data = nodeData[activeNodeIdInPanel];
+                    populateInfoPanel(activeNodeIdInPanel, data.basicInfo, data.depthInfo, data.youtubeId);
+                } else {
+                    connectionsContainer.innerHTML = ''; 
+                    infoPanel.innerHTML = `
+                        <button class="toggle-fullscreen-button" id="toggle-fullscreen-button" title="Expand to fullscreen">
+                            ⛶
+                        </button>
+                        <h2>No Results</h2><p>No topics found matching your search term.</p>`;
+                    toggleFullscreenButton = infoPanel.querySelector('#toggle-fullscreen-button');
+                    if (toggleFullscreenButton) {
+                        toggleFullscreenButton.removeEventListener('click', toggleInfoPanelFullscreen);
+                        toggleFullscreenButton.addEventListener('click', toggleInfoPanelFullscreen); 
+                    }
+                    if (activeNodeIdInPanel && nodeData[activeNodeIdInPanel]) {
+                        nodeData[activeNodeIdInPanel].node.classList.remove('active');
+                    }
+                    activeNodeIdInPanel = null;
+                    updateNodePositions(); // Reset node positions if no match
+                }
+                // Ensure info panel is not fullscreen and network is visible during search results
+                infoPanel.classList.remove('fullscreen');
+                networkContainer.classList.remove('hidden-on-fullscreen');
+                networkContainer.classList.remove('slide-in-from-left');
+                networkContainer.classList.remove('blurred-background'); // Remove blur when not fullscreen
+                isInfoPanelFullscreen = false;
+            }
+        });
+
+
+        // INITIAL SETUP ON LOAD
+        window.addEventListener('load', () => {
+            updateNodePositions(); // Initialize node positions
+            resetInfoPanelToWelcome(); // Set initial info panel content
+        });
+
+        window.addEventListener('resize', () => {
+            // Recalculate positions only if network is currently visible
+            // This is crucial for maintaining correct node positions during resize.
+            if (!isInfoPanelFullscreen || networkContainer.classList.contains('slide-in-from-left')) {
+                updateNodePositions(activeNodeIdInPanel);
+            }
+        });
+
+        // NEW: Hover logic for network-container to slide in from left
+        const networkTriggerZone = 50; // How far from the left edge to trigger the network container
+        const networkStayOpenZone = 400; // How wide the network can be before it slides back out when mouse moves away from edge
+
+        document.addEventListener('mousemove', (e) => {
+            if (isInfoPanelFullscreen) { // Only when info panel is fullscreen
+                if (e.clientX < networkTriggerZone) { // Cursor is near the left edge of the screen
+                    clearTimeout(networkSlideTimeout);
+                    networkContainer.classList.add('slide-in-from-left');
+                    networkContainer.classList.add('blurred-background'); // Add blur class
+                    // Dim the info panel when network slides in
+                    infoPanel.classList.add('dim-on-network-slide');
+                } else if (networkContainer.classList.contains('slide-in-from-left') && e.clientX > networkStayOpenZone) {
+                    // Cursor moved far enough from the left edge AND network is currently slid in
+                    clearTimeout(networkSlideTimeout);
+                    networkSlideTimeout = setTimeout(() => {
+                        networkContainer.classList.remove('slide-in-from-left');
+                        networkContainer.classList.remove('blurred-background'); // Remove blur class
+                        infoPanel.classList.remove('dim-on-network-slide');
+                    }, 300); // Small delay before sliding out
+                }
+            }
+        });
+
+        // Keep network open if mouse enters it (when fullscreen)
+        networkContainer.addEventListener('mouseenter', () => {
+            clearTimeout(networkSlideTimeout);
+            if (isInfoPanelFullscreen) {
+                networkContainer.classList.add('slide-in-from-left');
+                networkContainer.classList.add('blurred-background'); // Add blur class
+                infoPanel.classList.add('dim-on-network-slide');
+            }
+        });
+
+        // Slide network out if mouse leaves it (when fullscreen)
+        networkContainer.addEventListener('mouseleave', (e) => {
+            // Check if mouse is moving towards the info panel or simply out of the network container
+            // If the mouse is moving into the main document area, allow it to slide out.
+            // If the mouse is moving into the info panel (when info panel is fullscreen), do nothing.
+            if (isInfoPanelFullscreen && e.clientX > 0 && e.clientX <= window.innerWidth) { // Ensure mouse is within window
+                clearTimeout(networkSlideTimeout);
+                networkSlideTimeout = setTimeout(() => {
+                    networkContainer.classList.remove('slide-in-from-left');
+                    networkContainer.classList.remove('blurred-background'); // Remove blur class
+                    infoPanel.classList.remove('dim-on-network-slide');
+                }, 300);
+            }
+        });
+    </script>
+</body>
+</html>
