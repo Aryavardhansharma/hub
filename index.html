@@ -42,7 +42,7 @@
             pointer-events: auto; /* Enable pointer events by default */
         }
 
-        /* State for network-container when info-panel is fullscreen */
+        /* State for network-container when info-panel is fullscreen (initially hidden) */
         .network-container.hidden-on-fullscreen {
             position: fixed; /* Fixed to viewport for sliding */
             top: 0;
@@ -65,11 +65,10 @@
             opacity: 1; /* Make opaque when slid in */
             visibility: visible; /* Make visible */
             box-shadow: 0 5px 15px rgba(0, 0, 0, 0.3); /* Restore shadow */
-            z-index: 95; /* Ensure it's above the info-panel when slid in */
+            z-index: 105; /* HIGHER than fullscreen info-panel to overlap it */
             pointer-events: auto; /* Re-enable pointer events */
             width: 60%; /* Expanded width when info-panel is fullscreen */
-            backdrop-filter: blur(10px); /* Apply blur to the background */
-            background-color: rgba(33, 33, 59, 0.7); /* Slightly transparent background for better blur effect */
+            background-color: #21213b; /* Solid background, no blur */
         }
 
 
@@ -89,7 +88,7 @@
             z-index: 60; /* Higher than network-container, lower than info-panel's toggle button */
         }
 
-        /* Hide search bar when info-panel is fullscreen */
+        /* Hide search bar when info-panel is fullscreen or network slides in */
         .network-container.hidden-on-fullscreen .search-bar,
         .network-container.slide-in-from-left .search-bar {
             opacity: 0;
@@ -329,6 +328,87 @@
             box-shadow: 0 0 5px #f1c40f;
             height: 2px;
         }
+
+        /* --- Mobile Styles (max-width: 768px for phones and small tablets) --- */
+        @media (max-width: 768px) {
+            .container {
+                flex-direction: column; /* Stack network and info panel vertically */
+                padding: 10px; /* Reduce padding for smaller screens */
+                gap: 10px; /* Reduce gap */
+            }
+
+            .network-container {
+                flex: 1; /* Take full width and equal height (or adjust as needed) */
+                height: 50vh; /* Give half the viewport height to the network */
+                min-height: 250px; /* Ensure a minimum height */
+                border-radius: 5px; /* Slightly smaller border-radius */
+            }
+
+            .info-panel {
+                flex: 1; /* Take full width and remaining height */
+                height: 50vh; /* Give half the viewport height to the info panel */
+                max-height: unset; /* Remove max-height constraint for scrolling */
+                padding: 15px; /* Adjust padding */
+                border-radius: 5px;
+            }
+
+            /* Adjust search bar position for mobile */
+            .search-bar {
+                width: calc(100% - 40px); /* Full width minus padding */
+                top: 10px;
+                left: 10px;
+                font-size: 0.9em;
+                padding: 8px 12px;
+            }
+
+            /* Fullscreen Info Panel on Mobile: Take over the entire screen */
+            .info-panel.fullscreen {
+                top: 0;
+                left: 0;
+                width: 100%;
+                height: 100%;
+                border-radius: 0;
+                padding: 15px; /* Ensure padding is reasonable */
+                box-sizing: border-box;
+                overflow-y: auto;
+            }
+
+            /* When info panel is fullscreen on mobile, hide network completely */
+            .network-container.hidden-on-fullscreen,
+            .network-container.slide-in-from-left { /* Combine these for mobile */
+                position: fixed;
+                top: 0;
+                left: -100%; /* Completely off-screen */
+                width: 100%; /* Take full width but remain hidden */
+                height: 100%;
+                opacity: 0;
+                visibility: hidden;
+                pointer-events: none;
+                transition: transform 0.3s ease-out, opacity 0.3s ease, visibility 0.3s ease;
+                box-shadow: none;
+                z-index: 1; /* Ensure it's behind the fullscreen panel */
+            }
+
+            /* Toggle button specific for mobile (position on info panel) */
+            .info-panel .toggle-fullscreen-button {
+                top: 10px;
+                right: 10px;
+                font-size: 1.2em;
+                padding: 5px;
+            }
+
+            /* Disable dimming of info-panel on mobile when network is not slid in */
+            .info-panel.fullscreen.dim-on-network-slide {
+                opacity: 1; /* Don't dim on mobile, network is fully hidden */
+                pointer-events: auto; /* Re-enable pointer events for fullscreen panel on mobile */
+            }
+
+            /* Labels on mobile might need different positioning or truncation */
+            .node-label {
+                font-size: 0.8em; /* Slightly smaller font */
+                /* Further adjustments might be needed based on number of nodes */
+            }
+        }
     </style>
 </head>
 <body>
@@ -520,13 +600,12 @@
 
         // Helper to get center of the network-container
         function getCenterOfNetworkContainer() {
-            // When network is hidden-on-fullscreen or slide-in-from-left, its width/height are the window's
-            const currentContainerWidth = networkContainer.classList.contains('hidden-on-fullscreen') || networkContainer.classList.contains('slide-in-from-left') ? window.innerWidth : networkContainer.offsetWidth;
-            const currentContainerHeight = networkContainer.classList.contains('hidden-on-fullscreen') || networkContainer.classList.contains('slide-in-from-left') ? window.innerHeight : networkContainer.offsetHeight;
+            // Get the current size and position of the networkContainer
+            const rect = networkContainer.getBoundingClientRect();
 
             return {
-                x: currentContainerWidth / 2,
-                y: currentContainerHeight / 2
+                x: rect.width / 2,
+                y: rect.height / 2
             };
         }
 
@@ -563,8 +642,8 @@
             connectionsContainer.innerHTML = ''; // Clear all existing connections
 
             const visibleNodeIds = Array.from(nodeWrappers)
-                                           .filter(wrapper => wrapper.style.display !== 'none')
-                                           .map(wrapper => wrapper.querySelector('.node').id.substring(5));
+                                        .filter(wrapper => wrapper.style.display !== 'none')
+                                        .map(wrapper => wrapper.querySelector('.node').id.substring(5));
 
             const processedConnections = new Set();
             
@@ -608,13 +687,10 @@
 
 
         function updateNodePositions(clickedNodeId = null) {
-            const currentReferenceWidth = isInfoPanelFullscreen ? window.innerWidth : networkContainer.offsetWidth;
-            const currentReferenceHeight = isInfoPanelFullscreen ? window.innerHeight : networkContainer.offsetHeight;
+            const center = getCenterOfNetworkContainer(); // Use the updated helper function
+            const currentReferenceWidth = networkContainer.offsetWidth; // Use actual offsetWidth for circumference calculation
+            const currentReferenceHeight = networkContainer.offsetHeight; // Use actual offsetHeight for circumference calculation
 
-            const center = {
-                x: currentReferenceWidth / 2,
-                y: currentReferenceHeight / 2
-            };
             const dotSize = nodeData[Object.keys(nodeData)[0]]?.node.offsetWidth || 15;
             const labelMargin = 25;
             const circumferenceRadius = Math.min(currentReferenceWidth / 2, currentReferenceHeight / 2) * 0.7;
@@ -790,7 +866,7 @@
                 // Show the network container by removing the class
                 networkContainer.classList.remove('hidden-on-fullscreen');
                 networkContainer.classList.remove('slide-in-from-left'); // Ensure it's not slid in
-                networkContainer.classList.remove('blurred-background'); // Remove blur when not fullscreen
+                infoPanel.classList.remove('dim-on-network-slide'); // Remove dimming
                 updateNodePositions(activeNodeIdInPanel); // Recalculate node positions with current active node
                 // Re-populate info panel with the previously active node's data (or welcome if none)
                 if (activeNodeIdInPanel) {
@@ -913,7 +989,7 @@
                 infoPanel.classList.remove('fullscreen');
                 networkContainer.classList.remove('hidden-on-fullscreen');
                 networkContainer.classList.remove('slide-in-from-left');
-                networkContainer.classList.remove('blurred-background'); // Remove blur on search clear
+                infoPanel.classList.remove('dim-on-network-slide'); // Remove dimming on search clear
                 isInfoPanelFullscreen = false;
             } else {
                 if (currentActiveNodeStillVisible) {
@@ -952,7 +1028,7 @@
                 infoPanel.classList.remove('fullscreen');
                 networkContainer.classList.remove('hidden-on-fullscreen');
                 networkContainer.classList.remove('slide-in-from-left');
-                networkContainer.classList.remove('blurred-background'); // Remove blur when not fullscreen
+                infoPanel.classList.remove('dim-on-network-slide'); // Remove dimming during search results
                 isInfoPanelFullscreen = false;
             }
         });
@@ -977,19 +1053,16 @@
         const networkStayOpenZone = 400; // How wide the network can be before it slides back out when mouse moves away from edge
 
         document.addEventListener('mousemove', (e) => {
-            if (isInfoPanelFullscreen) { // Only when info panel is fullscreen
-                if (e.clientX < networkTriggerZone) { // Cursor is near the left edge of the screen
+            // Only enable this behavior for screens wider than 768px (or your chosen mobile breakpoint)
+            if (window.innerWidth > 768 && isInfoPanelFullscreen) {
+                if (e.clientX < networkTriggerZone) {
                     clearTimeout(networkSlideTimeout);
                     networkContainer.classList.add('slide-in-from-left');
-                    networkContainer.classList.add('blurred-background'); // Add blur class
-                    // Dim the info panel when network slides in
                     infoPanel.classList.add('dim-on-network-slide');
                 } else if (networkContainer.classList.contains('slide-in-from-left') && e.clientX > networkStayOpenZone) {
-                    // Cursor moved far enough from the left edge AND network is currently slid in
                     clearTimeout(networkSlideTimeout);
                     networkSlideTimeout = setTimeout(() => {
                         networkContainer.classList.remove('slide-in-from-left');
-                        networkContainer.classList.remove('blurred-background'); // Remove blur class
                         infoPanel.classList.remove('dim-on-network-slide');
                     }, 300); // Small delay before sliding out
                 }
@@ -998,24 +1071,21 @@
 
         // Keep network open if mouse enters it (when fullscreen)
         networkContainer.addEventListener('mouseenter', () => {
-            clearTimeout(networkSlideTimeout);
-            if (isInfoPanelFullscreen) {
+            // Only enable this behavior for screens wider than 768px
+            if (window.innerWidth > 768 && isInfoPanelFullscreen) {
+                clearTimeout(networkSlideTimeout);
                 networkContainer.classList.add('slide-in-from-left');
-                networkContainer.classList.add('blurred-background'); // Add blur class
                 infoPanel.classList.add('dim-on-network-slide');
             }
         });
 
         // Slide network out if mouse leaves it (when fullscreen)
         networkContainer.addEventListener('mouseleave', (e) => {
-            // Check if mouse is moving towards the info panel or simply out of the network container
-            // If the mouse is moving into the main document area, allow it to slide out.
-            // If the mouse is moving into the info panel (when info panel is fullscreen), do nothing.
-            if (isInfoPanelFullscreen && e.clientX > 0 && e.clientX <= window.innerWidth) { // Ensure mouse is within window
+            // Only enable this behavior for screens wider than 768px
+            if (window.innerWidth > 768 && isInfoPanelFullscreen && e.clientX > 0 && e.clientX <= window.innerWidth) {
                 clearTimeout(networkSlideTimeout);
                 networkSlideTimeout = setTimeout(() => {
                     networkContainer.classList.remove('slide-in-from-left');
-                    networkContainer.classList.remove('blurred-background'); // Remove blur class
                     infoPanel.classList.remove('dim-on-network-slide');
                 }, 300);
             }
