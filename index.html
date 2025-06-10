@@ -408,6 +408,11 @@
                 font-size: 0.8em; /* Slightly smaller font */
                 /* Further adjustments might be needed based on number of nodes */
             }
+
+            /* New: When info-panel is fullscreen on mobile, hide the search bar completely */
+            .info-panel.fullscreen ~ .network-container .search-bar {
+                display: none;
+            }
         }
     </style>
 </head>
